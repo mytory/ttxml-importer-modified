@@ -219,7 +219,7 @@ class TTXML_Import {
             $file_path = $attach_dir.'/'.$data['post_title'];
             if (!rename($moved_file_path, $file_path)) {
                 // 파일을 새 경로로 옮기는 데 실패하면 첨부파일 정보를 원래 파일 경로로 다시 세팅.
-                echo "<p>다음 경로로 파일을 놓는 데는 실패했습니다: $file_path</p>";
+                echo "<p>첨부파일을 좀더 예쁜 경로로 옮기지는 못했습니다: $file_path</p>";
                 $file_path = $moved_file_path;
                 $data['guid'] = "{$this->attach_url}/{$data['post_name']}";
             }
@@ -234,7 +234,14 @@ class TTXML_Import {
                 update_post_meta($post_id, '_thumbnail_id', $attach_id);
                 $thumbnail_once = true;
             }
+
+            if ($this->attach_url != $attach_url) {
+                $post->post_content = str_replace($this->attach_url, $attach_url, $post->post_content);
+                $post->post_content = str_replace($data['post_name'], $data['post_title'], $post->post_content);
+            }
         }
+
+        wp_update_post($post);
 
         return true;
     }
@@ -262,7 +269,6 @@ class TTXML_Import {
 
             preg_match('|<content>([^<]+)</content>|s', $comment, $comment_content);
             $comment_content = htmlspecialchars_decode(trim($comment_content[1]));
-            $comment_content = esc_sql($comment_content);
 
             $comment_approved = 1;
             $user_id = 0;
@@ -302,7 +308,6 @@ class TTXML_Import {
 
             preg_match('|<excerpt>([^<]+)</excerpt>|s', $trackback, $comment_content);
             $comment_content = htmlspecialchars_decode(trim($comment_content[1]));
-            $comment_content = esc_sql($comment_content);
 
             $comment_approved = 1;
             $user_id = 0;
