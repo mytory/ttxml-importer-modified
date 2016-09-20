@@ -47,7 +47,6 @@ class TTXML_Import {
 
     function header() {
         echo '<div class="wrap">';
-        screen_icon();
         echo '<h2>'.__('Import TTXML').'</h2>';
     }
 
@@ -152,17 +151,18 @@ class TTXML_Import {
     }
 
     function import_post(&$post) {
-        extract($post);
-
-        if ( post_exists($post_title, $post_content, $post_date) ) {
+        if ( post_exists($post['post_title'], $post['post_content'], $post['post_date']) ) {
             return 0;
         }
 
         $post_id = wp_insert_post($post);
         if ( !$post_id ) return -1;
 
-        if ($category)
-            wp_create_categories(array($category), $post_id);
+        // save tistory id.
+        update_post_meta($post_id, '_tistory_id', $post['tistory_id']);
+
+        if ($post['category'])
+            wp_create_categories(array($post['category']), $post_id);
 
         return $post_id;
     }
@@ -188,16 +188,41 @@ class TTXML_Import {
     function import_attachments($post_id, &$attachments) {
         $thumbnail_once = false;
 
-        foreach ( $attachments as $data ) {
-            // image only
-            if ( strpos($data['post_mime_type'], 'image/') !== 0 )
-                continue;
+        // 워드프레스에서 기존 세팅한 폴더로 파일을 업로드하기 위해 포스트 날짜를 기반으로 업로드 패스를 다시 구한다.
+        $post = get_post($post_id);
+        $post_time = date('Y/m', strtotime($post->post_date));
+        $wp_upload_dir = wp_upload_dir($post_time);
 
-            $data['guid'] = $this->attach_url.'/'.$data['post_name'];
+        $attach_dir = $wp_upload_dir['path'];
+        $attach_url = $wp_upload_dir['url'];
+
+        // 구한 업로드 경로가 쓰기 가능하지 않으면 기본 업로드 패스로.
+        if (!$this->has_permission_on_dir($attach_dir)) {
+            $attach_dir = $this->attach_dir;
+            $attach_url = $this->attach_url;
+        }
+
+        foreach ( $attachments as $data ) {
+            // 원작자는 image only라고 했는데, 나(mytory)는 왜 그래야 하는지 모르겠다.
+            // if ( strpos($data['post_mime_type'], 'image/') !== 0 )
+            //     continue;
+
+            $data['post_title'] = sanitize_file_name(strtolower($data['post_title']));
+
+            $data['guid'] = $attach_url.'/'.$data['post_title'];
             $data['post_status'] = 'inherit';
             $data['post_content'] = '';
 
-            $file_path = $this->attach_dir.'/'.$data['post_name'];
+            // 앞의 parse_attachments() 함수에서 이미 파일은 아래 경로로 만들어 두었다.
+            $moved_file_path = "{$this->attach_dir}/{$data['post_name']}";
+            // 새로 둘 파일 경로.
+            $file_path = $attach_dir.'/'.$data['post_title'];
+            if (!rename($moved_file_path, $file_path)) {
+                // 파일을 새 경로로 옮기는 데 실패하면 첨부파일 정보를 원래 파일 경로로 다시 세팅.
+                echo "<p>다음 경로로 파일을 놓는 데는 실패했습니다: $file_path</p>";
+                $file_path = $moved_file_path;
+                $data['guid'] = "{$this->attach_url}/{$data['post_name']}";
+            }
 
             $attach_id = wp_insert_attachment($data, $file_path, $post_id);
             if ( !$attach_id ) return false;
@@ -215,8 +240,6 @@ class TTXML_Import {
     }
 
     function & parse_comments(&$data) {
-        global $wpdb;
-
         preg_match_all('|<comment>(.+?(?:<comment>.+?</comment>)*)\s*</comment>|s', $data, $comments);
         $comments = $comments[1];
 
@@ -239,7 +262,7 @@ class TTXML_Import {
 
             preg_match('|<content>([^<]+)</content>|s', $comment, $comment_content);
             $comment_content = htmlspecialchars_decode(trim($comment_content[1]));
-            $comment_content = $wpdb->escape($comment_content);
+            $comment_content = esc_sql($comment_content);
 
             $comment_approved = 1;
             $user_id = 0;
@@ -257,8 +280,6 @@ class TTXML_Import {
     }
 
     function & parse_trackbacks(&$data) {
-        global $wpdb;
-
         $match_count = preg_match_all('|<trackback>(?:.(?<!</trackback>))+</trackback>|s', $data, $trackbacks);
         $trackbacks = $trackbacks[0];
 
@@ -281,7 +302,7 @@ class TTXML_Import {
 
             preg_match('|<excerpt>([^<]+)</excerpt>|s', $trackback, $comment_content);
             $comment_content = htmlspecialchars_decode(trim($comment_content[1]));
-            $comment_content = $wpdb->escape($comment_content);
+            $comment_content = esc_sql($comment_content);
 
             $comment_approved = 1;
             $user_id = 0;
@@ -300,7 +321,6 @@ class TTXML_Import {
     }
 
     function & parse_post(&$data) {
-        global $wpdb;
 
         $status_map = array(
             'public'=>'publish', 'syndicated'=>'publish',
@@ -314,14 +334,18 @@ class TTXML_Import {
         if ( $post_type == 'post' ) {
             preg_match('|^<post slogan="([^"]+)"|s', $data, $post_name);
             $post_name = trim($post_name[1]);
-            $post_name = $wpdb->escape($post_name);
+            $post_name = esc_sql($post_name);
         } else {
             $post_name = null;
         }
 
+        preg_match('|<id>([^<]+)</id>|s', $data, $tistory_id);
+        $tistory_id = htmlspecialchars_decode(trim($tistory_id[1]));
+        $tistory_id = esc_sql($tistory_id);
+
         preg_match('|<title>([^<]+)</title>|s', $data, $post_title);
         $post_title = htmlspecialchars_decode(trim($post_title[1]));
-        $post_title = $wpdb->escape($post_title);
+        $post_title = esc_sql($post_title);
 
         preg_match('|<published>([^<]+)</published>|s', $data, $post_date);
         $post_date_gmt = gmdate('Y-m-d H:i:s', $post_date[1]);
@@ -344,18 +368,18 @@ class TTXML_Import {
         preg_match('|<content[^>]*>([^<]+)</content>|s', $data, $post_content);
         $post_content = htmlspecialchars_decode(trim($post_content[1]));
         $this->replacer_change($post_content);
-        $post_content = $wpdb->escape($post_content);
+//        $post_content = esc_sql($post_content);
 
         preg_match_all('|<tag>([^<]+)</tag>|s', $data, $tags_input);
         if ( is_array($tags_input[1]) ) {
             $tags_input = implode(',', $tags_input[1]);
-            $tags_input = $wpdb->escape($tags_input);
+            $tags_input = esc_sql($tags_input);
         } else {
             $tags_input = '';
         }
 
         $post = compact(
-            'post_type', 'post_author', 'post_date', 'post_date_gmt', 'post_content',
+            'tistory_id', 'post_type', 'post_author', 'post_date', 'post_date_gmt', 'post_content',
             'post_title', 'post_name', 'post_status', 'post_password', 'category', 'tags_input'
         );
 
@@ -696,9 +720,35 @@ class TTXML_Import {
         $this->attach_dir = preg_replace('|/$|', '', $dir['basedir']).'/'.$this->attach_subdir;
         $this->attach_url = preg_replace('|/$|', '', $dir['baseurl']).'/'.$this->attach_subdir;
     }
+
+    /**
+     * 디렉토리에 쓰기 권한이 있는지 검사.
+     * 디렉토리가 없으면 만든 뒤 검사한다.
+     * @param $attach_dir
+     * @return bool
+     */
+    private function has_permission_on_dir($attach_dir)
+    {
+        if (!is_dir($attach_dir)) {
+            if (!mkdir($attach_dir, 0755, true)) {
+                return false;
+            }
+        }
+        if (!is_writable($attach_dir)) {
+            return false;
+        }
+        return true;
+    }
 }
 
 $ttxml_import = new TTXML_Import();
 
 register_importer('ttxml', __('TTXML'), __('Import posts from TTXML.'), array($ttxml_import, 'dispatch'));
-?>
+
+// 티스토리에 많이 첨부할 만한 hwp 업로드를 허용.
+add_filter('upload_mimes', 'allow_upload_hwp');
+function allow_upload_hwp($existing_mimes = array())
+{
+    $existing_mimes['hwp'] = 'application/hangul';
+    return $existing_mimes;
+}
