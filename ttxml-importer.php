@@ -203,10 +203,6 @@ class TTXML_Import {
         }
 
         foreach ( $attachments as $data ) {
-            // 원작자는 image only라고 했는데, 나(mytory)는 왜 그래야 하는지 모르겠다.
-            // if ( strpos($data['post_mime_type'], 'image/') !== 0 )
-            //     continue;
-
             $data['guid'] = $attach_url.'/'.$data['post_name'];
             $data['post_status'] = 'inherit';
             $data['post_content'] = '';
