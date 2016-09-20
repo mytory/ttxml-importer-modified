@@ -207,16 +207,14 @@ class TTXML_Import {
             // if ( strpos($data['post_mime_type'], 'image/') !== 0 )
             //     continue;
 
-            $data['post_title'] = sanitize_file_name(strtolower($data['post_title']));
-
-            $data['guid'] = $attach_url.'/'.$data['post_title'];
+            $data['guid'] = $attach_url.'/'.$data['post_name'];
             $data['post_status'] = 'inherit';
             $data['post_content'] = '';
 
             // 앞의 parse_attachments() 함수에서 이미 파일은 아래 경로로 만들어 두었다.
             $moved_file_path = "{$this->attach_dir}/{$data['post_name']}";
             // 새로 둘 파일 경로.
-            $file_path = $attach_dir.'/'.$data['post_title'];
+            $file_path = $attach_dir.'/'.$data['post_name'];
             if (!rename($moved_file_path, $file_path)) {
                 // 파일을 새 경로로 옮기는 데 실패하면 첨부파일 정보를 원래 파일 경로로 다시 세팅.
                 echo "<p>첨부파일을 좀더 예쁜 경로로 옮기지는 못했습니다: $file_path</p>";
@@ -235,12 +233,18 @@ class TTXML_Import {
                 $thumbnail_once = true;
             }
 
-            if ($this->attach_url != $attach_url) {
-                $post->post_content = str_replace($this->attach_url, $attach_url, $post->post_content);
+            // 파일을 옮긴 경우 post_content 내용 갱신
+            if ($moved_file_path != $file_path) {
+                // 1. 링크 텍스트 같은 것을 흉한 cfile...에서 파일의 제목으로 변경한다.
                 $post->post_content = str_replace($data['post_name'], $data['post_title'], $post->post_content);
+
+                // 2. url 픽스. 1에서 mypage.com/uploads/2010/01/cfile.xxxxxx.jpg 가 mypage.com/uploads/2010/01/my-file.jpg 같은 것으로 변경됐을 것이다.
+                //    이것을 원래대로 돌려 준다.
+                $post->post_content = str_replace($this->attach_url . '/' . $data['post_title'], $attach_url . '/' . $data['post_name'], $post->post_content);
             }
         }
 
+        // post_content를 업데이트한다.
         wp_update_post($post);
 
         return true;
